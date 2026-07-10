@@ -1,32 +1,8 @@
-#include <iostream>
-#include <fstream>
-using namespace std;
-
-#include "httpclient.hpp"
-#include "request.hpp"
-#include "response.hpp"
-
+#include "downloader.hpp"
 int main(){
 
-    Request req;
-
-    req.method = "GET";
-    req.path = "/test.png";
-    req.headers["Host"] = "localhost";
-    req.headers["Connection"] = "close";
-    req.version = "HTTP/1.1";
-
-    HttpClient client;
-
-    Response res = client.send(
-        "localhost",
-        "8000",
-        req
-    );
-
-    ofstream out("downloaded.png",ios::binary);
-
-    out.write(res.body.data(),res.body.size());
+    Downloader downloader;
+    downloader.download("http://localhost:8000/test500mb.bin","check.bin");
 
     return 0;
 }

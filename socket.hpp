@@ -64,14 +64,8 @@ public:
         return 0;
     }
 
-    string Receive(){
-        string response;
-        char buf[MAXDATASIZE];
-        int bytes;
-        while((bytes=recv(sockfd,buf,MAXDATASIZE,0))>0){
-            response.append(buf,bytes);
-        }
-        return response;
+    int Receive(char *buffer,int size){
+        return recv(sockfd,buffer,size,0);
     }
 
     void Disconnect(){

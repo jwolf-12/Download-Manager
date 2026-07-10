@@ -28,12 +28,7 @@ public:
         return headers.at(key);
     }
 
-    void parseResponse(string response){
-        size_t pos = response.find("\r\n\r\n");
-        string headerPart= response.substr(0,pos);
-        string bodyPart = response.substr(pos+4);
-        body.assign(bodyPart.begin(),bodyPart.end());
-
+    void parseHeaders(string headerPart){
         stringstream ss(headerPart);
         string line;
         bool firstLine=true;
@@ -60,6 +55,15 @@ public:
             }
 
         }
+    }
+
+    void parseResponse(string response){
+        size_t pos = response.find("\r\n\r\n");
+        string headerPart= response.substr(0,pos);
+        string bodyPart = response.substr(pos+4);
+        body.assign(bodyPart.begin(),bodyPart.end());
+
+        parseHeaders(headerPart);
     }
 
     void printResponse(){
