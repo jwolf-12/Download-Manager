@@ -2,7 +2,6 @@
 
 #include <fstream>
 #include "httpclient.hpp"
-#include "request.hpp"
 #include <chrono>
 
 
@@ -10,9 +9,6 @@ class Downloader{
 private:
     HttpClient client;
     string file;
-    string domain;
-    string port;
-    Request req;
     ofstream out;
     int bytesRecv;
     chrono::time_point<chrono::high_resolution_clock> start,last;
@@ -42,30 +38,12 @@ public:
         if(!out){
             throw runtime_error("file creation failed");
         }
-        int pos = url.find("://");
-        pos+=3;
-        size_t colon = url.substr(pos).find(":");
-        if(colon==string::npos){
-            port="80";
-            int slash = url.substr(pos).find("/")+pos;
-            domain=url.substr(pos,slash-pos);
-            req.path=url.substr(slash);
-        }
-        else{
-            colon+=pos;
-            domain=url.substr(pos,colon-pos);
-            int slash = url.substr(colon).find("/")+colon;
-            port=url.substr(colon+1,slash-colon-1);
-            req.path = url.substr(slash);
-        }
-        req.method="GET";
-        req.headers["Host"]=domain;
-        req.version ="HTTP/1.1";
+
         bytesRecv=0;
 
         start=chrono::high_resolution_clock::now();
         last=start;
-        client.sendLarge(domain,port,req,[&](const char*buffer,int size,int totalSize){
+        client.sendLarge(url,[&](const char*buffer,int size,int totalSize){
             writer(buffer,size,totalSize);
         });
 
