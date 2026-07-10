@@ -31,7 +31,7 @@ public:
     //     return res;
     // }
 
-    void sendLarge(string domain,string port,Request req,function<void(const char*,int)> callback){
+    void sendLarge(string domain,string port,Request req,function<void(const char*,int,int)> callback){
         Socket socket;
 
         if(socket.Connect(domain,port)==-1)
@@ -44,6 +44,8 @@ public:
         bool parsedHeaders=false;
 
         string headerPart;
+        int totalSize=0;
+        int received=0;
 
         while(true){
             int bytes=socket.Receive(buffer,4096);
@@ -59,10 +61,16 @@ public:
                 res.parseHeaders(headerPart.substr(0,pos));
 
                 int bodyStart=pos-headerPart.size()+bytes+4;
-                callback(buffer+bodyStart,bytes-bodyStart);
+                totalSize=stoi(res.getHeader("Content-Length"));
+                received=bytes-bodyStart;
+                callback(buffer+bodyStart,bytes-bodyStart,totalSize);
                 parsedHeaders=true;
             }
-            else callback(buffer,bytes);
+            else{
+                callback(buffer,bytes,totalSize);
+                received+=bytes;
+            }
+            if(received==totalSize) break;
         }
         
         socket.Disconnect();

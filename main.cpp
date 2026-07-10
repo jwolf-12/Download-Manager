@@ -2,7 +2,7 @@
 int main(){
 
     Downloader downloader;
-    downloader.download("http://localhost:8000/test500mb.bin","check.bin");
+    downloader.download("http://speedtest.tele2.net/3MB.zip","test.zip");
 
     return 0;
 }
