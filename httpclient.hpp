@@ -47,7 +47,7 @@ public:
         if(socket.Send(req.buildRequest())==-1)
             throw runtime_error("send_failed");
 
-        char buffer[4096];
+        char buffer[MAXDATASIZE];
 
         bool parsedHeaders=false;
 
@@ -56,7 +56,7 @@ public:
         int received=0;
 
         while(true){
-            int bytes=socket.Receive(buffer,4096);
+            int bytes=socket.Receive(buffer,MAXDATASIZE);
             if(bytes<=0) break;
             if(!parsedHeaders){
                 string raw(buffer,bytes);
@@ -118,7 +118,7 @@ public:
 
         // cout << req.buildRequest() << endl;
 
-        char buffer[4096];
+        char buffer[MAXDATASIZE];
 
         bool parsedHeaders=false;
 
@@ -127,7 +127,7 @@ public:
         int received=0;
 
         while(true){
-            int bytes=socket.Receive(buffer,4096);
+            int bytes=socket.Receive(buffer,MAXDATASIZE);
             if(bytes<=0) break;
             if(!parsedHeaders){
                 string raw(buffer,bytes);
@@ -145,12 +145,6 @@ public:
                     socket.Disconnect();
                     return;
                 }
-
-                cout << "Status: " << res.statusCode << endl;
-                cout << "Length: " << res.getHeader("Content-Length") << endl;
-
-                if(res.headers.count("Content-Range"))
-                    cout << "Range: " << res.getHeader("Content-Range") << endl;
 
                 int bodyStart=pos-headerPart.size()+bytes+4;
                 totalSize=stoi(res.getHeader("Content-Length"));

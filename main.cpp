@@ -2,8 +2,8 @@
 int main(){
 
     Downloader downloader;
-    downloader.download("http://localhost/test.txt",
-    "test.txt");
+    downloader.download("https://speedtest.tele2.net/100MB.zip",
+    "test.zip");
 
     return 0;
 }
