@@ -1,0 +1,37 @@
+# Build files
+*.o
+*.out
+*.exe
+a.out
+build/
+cmake-build-*/
+
+# Compiled binaries
+client
+server
+main
+
+# Downloaded files / test data
+*.zip
+*.bin
+*.part
+part*
+downloads/
+*.tmp
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Logs
+*.log

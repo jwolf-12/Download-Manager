@@ -37,7 +37,6 @@ vector<Range> createRanges(long long totalSize, int threads){
         long long end = size*(i+1)-1;
         if(i==threads-1) end=totalSize-1;
         ranges.push_back(Range({size*i,end}));
-        if(totalSize<=size*(i+1)-1) break;
     }
 
     return ranges;
