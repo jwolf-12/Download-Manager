@@ -9,11 +9,13 @@
 class Downloader{
 private:
     HttpClient client;
-    long long bytesRecv;
+    long long bytesRecv=0;
     chrono::time_point<chrono::high_resolution_clock> start,last;
     long long totalSize=0;
+    ofstream out;
 
-void writer(const char*buffer,int size,ofstream& out){
+void writer(const char*buffer,int size,long long st){
+    out.seekp(st);
     out.write(buffer,size);
 
     bytesRecv+=size;
@@ -42,26 +44,23 @@ vector<Range> createRanges(long long totalSize, int threads){
     return ranges;
 }
 
-void downloadRange(string url,string file,Range* range){
+void downloadRange(string url,Range& range){
     struct downloadOptions options;
-    options.range=*range;
-
-    ofstream out;
-    out.open(file,ios::binary);
-    if(!out){
-        throw runtime_error("file creation failed");
-    }
-
+    options.range=range;
+    long long st = range.start;
     client.sendLarge(url,&options,[&](const char*buffer,int size){
-        writer(buffer,size,out);
+        writer(buffer,size,st);
+        st+=size;
     });
-
-    out.close();
 }
 
 public:
 
     void download(string url,string file){
+        out.open(file,ios::binary);
+        if(!out){
+            throw runtime_error("file creation failed");
+        }
 
         bytesRecv=0;
 
@@ -74,10 +73,15 @@ public:
             throw runtime_error("failed to get size");
         }
 
+        out.seekp(totalSize - 1);
+        out.write("", 1);
+        out.flush();
+
         vector<Range> ranges = createRanges(totalSize,threads);
 
         for(int i=0;i<ranges.size();i++){
-            downloadRange(url,"part"+to_string(i)+".zip",&ranges[i]);
+            downloadRange(url,ranges[i]);
         }
+        out.close();
     }
 };
