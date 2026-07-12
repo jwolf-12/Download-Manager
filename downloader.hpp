@@ -9,6 +9,8 @@
 #include <atomic>
 #include <mutex>
 
+#define MAXRETRIES 5
+
 class Downloader{
 private:
     HttpClient client;
@@ -35,36 +37,61 @@ void writer(const char*buffer,int size,long long st,fstream& out){
     }
 }
 
-vector<Range> createRanges(long long totalSize, int threads){
+vector<Chunk> createChunks(long long totalSize, int threads){
     long long size=totalSize/threads;
 
-    vector<Range> ranges;
+    vector<Chunk> chunks;
 
     for(int i=0;i<threads;i++){
         long long end = size*(i+1)-1;
         if(i==threads-1) end=totalSize-1;
-        ranges.push_back(Range({size*i,end}));
+        chunks.push_back(Chunk({Range({size*i,end})}));
     }
 
-    return ranges;
+    return chunks;
 }
 
-void downloadRange(string url,string file,Range& range){
-    fstream out(file,ios::in | ios::out | ios::binary);
-    if(!out){
-        throw runtime_error("file creation failed");
+void retryChunk(string url,string file,vector<reference_wrapper<Chunk>>& chunks){
+
+    vector<thread> workers;
+
+    for(auto &chunkRef: chunks){
+        Chunk& chunk=chunkRef.get();
+
+        chunk.failed=false;
+        chunk.retries++;
+        workers.emplace_back(&Downloader::downloadChunk,this,url,file,ref(chunk));
+        cout << "Retried..." << endl;
     }
 
-    struct downloadOptions options;
-    options.range=range;
-    long long st = range.start;
-    HttpClient client;
-    client.sendLarge(url,&options,[&](const char*buffer,int size){
-        writer(buffer,size,st,out);
-        st+=size;
-    });
+    for(auto& t:workers){
+        t.join();
+    }
+}
 
-    out.close();
+void downloadChunk(string url,string file,Chunk& chunk){
+    try{
+        fstream out(file,ios::in | ios::out | ios::binary);
+        if(!out){
+            throw runtime_error("file creation failed");
+        }
+
+        struct downloadOptions options;
+        options.range=chunk.range;
+        long long st = chunk.range.start;
+        HttpClient client;
+        client.sendLarge(url,&options,[&](const char*buffer,int size){
+            writer(buffer,size,st,out);
+            st+=size;
+            chunk.downloaded+=size;
+        });
+
+        out.close();
+    }
+    catch (const exception& e){
+        cerr << e.what() << endl;
+        chunk.failed=true;
+    }
 }
 
 public:
@@ -91,16 +118,37 @@ public:
         out.flush();
         out.close();
 
-        vector<Range> ranges = createRanges(totalSize,threads);
+        vector<Chunk> chunks = createChunks(totalSize,threads);
 
         vector<thread> workers;
-        for(auto& range:ranges){
-            workers.emplace_back(&Downloader::downloadRange,this,url,file,ref(range));
+        for(auto& chunk:chunks){
+            workers.emplace_back(&Downloader::downloadChunk,this,url,file,ref(chunk));
         }
 
         for(auto& t:workers){
             t.join();
         }
+
+        bool failed=false;
+        vector<reference_wrapper<Chunk>> failedChunks;
+
+        do{
+            failedChunks.clear();
+            failed=false;
+            for(auto& chunk:chunks){
+                if(chunk.failed){
+                    if(chunk.retries>MAXRETRIES){
+                        throw runtime_error("Cannot Download file\n");
+                    }
+                    failed=true;
+                    failedChunks.push_back(chunk);
+                }
+            }
+
+            if(failed){
+                retryChunk(url,file,failedChunks);
+            }
+        }while(failed);
 
         auto end=chrono::high_resolution_clock::now();
         double seconds = chrono::duration<double>(end - start).count();

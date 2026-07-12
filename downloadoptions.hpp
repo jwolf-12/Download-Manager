@@ -2,9 +2,16 @@
 
 #include <optional>
 struct Range{
-    long long start,end;
+    long long start=0, end=0;
 };
 
 struct downloadOptions{
     std::optional<Range> range;
+};
+
+struct Chunk {
+    Range range;
+    bool failed = false;
+    int retries = 0;
+    long long downloaded=0;
 };
