@@ -7,6 +7,7 @@ struct Range{
 
 struct downloadOptions{
     std::optional<Range> range;
+    bool expectPartial=false;
 };
 
 struct Chunk {
@@ -14,4 +15,5 @@ struct Chunk {
     bool failed = false;
     int retries = 0;
     long long downloaded=0;
+    bool completed=false;
 };

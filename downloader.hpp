@@ -19,6 +19,38 @@ private:
     long long totalSize=0;
     mutex progressMutex;
     mutex fileMutex;
+    mutex metaMutex;
+    atomic<bool> paused=false;
+
+void saveMeta(const string& filename, vector<Chunk>& chunks){
+    lock_guard<mutex> lock(metaMutex);
+    ofstream out(filename);
+    for(auto& chunk : chunks)
+    {
+        out << chunk.range.start << " "
+            << chunk.range.end << " "
+            << chunk.downloaded << " "
+            << chunk.completed << "\n";
+    }
+}
+
+vector<Chunk> loadMeta(const string& filename){
+    vector<Chunk> chunks;
+    ifstream in(filename);
+
+    long long start, end, downloaded;
+    bool completed;
+    while(in >> start >> end >> downloaded >> completed)
+    {
+        Chunk chunk({Range({start,end})});
+
+        chunk.downloaded = downloaded;
+        chunk.completed = completed;
+
+        chunks.push_back(chunk);
+    }
+    return chunks;
+}
 
 void writer(const char*buffer,int size,long long st,fstream& out){
     out.seekp(st);
@@ -51,43 +83,29 @@ vector<Chunk> createChunks(long long totalSize, int threads){
     return chunks;
 }
 
-void retryChunk(string url,string file,vector<reference_wrapper<Chunk>>& chunks){
-
-    vector<thread> workers;
-
-    for(auto &chunkRef: chunks){
-        Chunk& chunk=chunkRef.get();
-
-        chunk.failed=false;
-        chunk.retries++;
-        workers.emplace_back(&Downloader::downloadChunk,this,url,file,ref(chunk));
-        cout << "Retried..." << endl;
-    }
-
-    for(auto& t:workers){
-        t.join();
-    }
-}
-
-void downloadChunk(string url,string file,Chunk& chunk){
-    while(true){
+void downloadChunk(string url,string file,Chunk& chunk,bool partial,vector<Chunk>& chunks){
+    while(!paused){
         try{
             fstream out(file,ios::in | ios::out | ios::binary);
             if(!out){
                 throw runtime_error("file creation failed");
             }
-
             struct downloadOptions options;
             options.range=chunk.range;
-            long long st = chunk.range.start;
+            options.range->start+=chunk.downloaded;
+            options.expectPartial=partial;
+            long long st = options.range->start;
             HttpClient client;
             client.sendLarge(url,&options,[&](const char*buffer,int size){
                 writer(buffer,size,st,out);
                 st+=size;
+                lock_guard<mutex> lock(metaMutex);
                 chunk.downloaded+=size;
             });
 
             out.close();
+            chunk.completed=true;
+            saveMeta("file.meta", chunks);
             return;
         }
         catch (const exception& e){
@@ -126,16 +144,25 @@ public:
             throw runtime_error("failed to get size");
         }
 
-        out.seekp(totalSize - 1);
-        out.write("", 1);
-        out.flush();
-        out.close();
+        vector<Chunk> chunks;
+        ifstream in("file.meta");
 
-        vector<Chunk> chunks = createChunks(totalSize,threads);
+        if(in){
+            chunks=loadMeta("file.meta");
+        }
+        else {
+            chunks=createChunks(totalSize,threads);
+            out.seekp(totalSize - 1);
+            out.write("", 1);
+            out.flush();
+        }
+        out.close();
 
         vector<thread> workers;
         for(auto& chunk:chunks){
-            workers.emplace_back(&Downloader::downloadChunk,this,url,file,ref(chunk));
+            bytesRecv+=chunk.downloaded;
+            if(chunk.completed) continue;
+            workers.emplace_back(&Downloader::downloadChunk,this,url,file,ref(chunk),threads!=1,ref(chunks));
         }
 
         for(auto& t:workers){
@@ -147,6 +174,9 @@ public:
                 throw runtime_error("One or more chunks failed to be retrieved");
             }
         }
+
+        for(auto& c: chunks)
+        cout << c.completed << endl;
 
         // bool failed=false;
         // vector<reference_wrapper<Chunk>> failedChunks;
@@ -173,5 +203,9 @@ public:
         double seconds = chrono::duration<double>(end - start).count();
         cout << totalSize/(1024*1024.0) << "megabytes downloaded in " << seconds << " seconds." << endl;
 
+    }
+
+    void pause{
+        paused=true;
     }
 };

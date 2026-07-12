@@ -106,6 +106,7 @@ public:
         req.method="GET";
         req.headers["Host"]=domain;
         req.version ="HTTP/1.1";
+        req.headers["Range"]="bytes=0-0";
 
         if(socket.Connect(domain,port)==-1)
             throw runtime_error("connection failed");
@@ -136,7 +137,7 @@ public:
                     return x;
                 }
                 socket.Disconnect();
-                return res.statusCode==206;
+                return (res.statusCode==206);
             }
         }
         socket.Disconnect();
@@ -173,10 +174,14 @@ public:
             req.headers["Range"]="bytes="+to_string(options->range->start)+"-"+to_string(options->range->end);
         }
 
-        if(socket.Connect(domain,port)==-1)
+        if(socket.Connect(domain,port)==-1){
+            socket.Disconnect();
             throw runtime_error("connection failed");
-        if(socket.Send(req.buildRequest())==-1)
+        }
+        if(socket.Send(req.buildRequest())==-1){
+            socket.Disconnect();
             throw runtime_error("send_failed");
+        }
 
         // cout << req.buildRequest() << endl;
 
@@ -206,6 +211,11 @@ public:
                     sendLarge(url,options,callback);
                     socket.Disconnect();
                     return;
+                }
+
+                if(options->expectPartial && res.statusCode!=206){
+                    socket.Disconnect();
+                    throw runtime_error("Range failed");
                 }
 
                 int bodyStart=pos-headerPart.size()+bytes+4;
