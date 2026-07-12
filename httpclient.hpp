@@ -81,6 +81,68 @@ public:
         return -1;
     }
 
+    bool supportsRange(const string& url){
+        Socket socket;
+
+        string domain;
+        string port;
+        Request req;
+        int pos = url.find("://");
+        pos+=3;
+        size_t colon = url.substr(pos).find(":");
+        if(colon==string::npos){
+            port="80";
+            int slash = url.substr(pos).find("/")+pos;
+            domain=url.substr(pos,slash-pos);
+            req.path=url.substr(slash);
+        }
+        else{
+            colon+=pos;
+            domain=url.substr(pos,colon-pos);
+            int slash = url.substr(colon).find("/")+colon;
+            port=url.substr(colon+1,slash-colon-1);
+            req.path = url.substr(slash);
+        }
+        req.method="GET";
+        req.headers["Host"]=domain;
+        req.version ="HTTP/1.1";
+
+        if(socket.Connect(domain,port)==-1)
+            throw runtime_error("connection failed");
+        if(socket.Send(req.buildRequest())==-1)
+            throw runtime_error("send_failed");
+
+        string headerPart;
+
+        char buffer[MAXDATASIZE];
+        bool parsedHeaders=false;
+
+        while(true){
+            int bytes=socket.Receive(buffer,MAXDATASIZE);
+            if(bytes<=0) break;
+            if(!parsedHeaders){
+                string raw(buffer,bytes);
+                headerPart+=raw;
+                size_t pos = headerPart.find("\r\n\r\n");
+                if(pos==string::npos){
+                    continue;
+                }
+                Response res;
+                res.parseHeaders(headerPart.substr(0,pos));
+                if(res.statusCode==301 || res.statusCode == 302){
+                    string url=res.getHeader("Location");
+                    socket.Disconnect();
+                    bool x=supportsRange(url);
+                    return x;
+                }
+                socket.Disconnect();
+                return res.statusCode==206;
+            }
+        }
+        socket.Disconnect();
+        return false;
+    }
+
     void sendLarge(const string& url,struct downloadOptions * options, function<void(const char*,int)> callback){
         Socket socket;
 

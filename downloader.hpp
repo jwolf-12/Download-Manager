@@ -115,7 +115,12 @@ public:
         start=chrono::high_resolution_clock::now();
         last=start;
 
-        int threads=32;
+        int threads=16;
+
+        if(!client.supportsRange(url)){
+            threads=1;
+        }
+
         totalSize=client.getSize(url);
         if(totalSize==-1){
             throw runtime_error("failed to get size");
