@@ -70,27 +70,35 @@ void retryChunk(string url,string file,vector<reference_wrapper<Chunk>>& chunks)
 }
 
 void downloadChunk(string url,string file,Chunk& chunk){
-    try{
-        fstream out(file,ios::in | ios::out | ios::binary);
-        if(!out){
-            throw runtime_error("file creation failed");
+    while(true){
+        try{
+            fstream out(file,ios::in | ios::out | ios::binary);
+            if(!out){
+                throw runtime_error("file creation failed");
+            }
+
+            struct downloadOptions options;
+            options.range=chunk.range;
+            long long st = chunk.range.start;
+            HttpClient client;
+            client.sendLarge(url,&options,[&](const char*buffer,int size){
+                writer(buffer,size,st,out);
+                st+=size;
+                chunk.downloaded+=size;
+            });
+
+            out.close();
+            return;
         }
-
-        struct downloadOptions options;
-        options.range=chunk.range;
-        long long st = chunk.range.start;
-        HttpClient client;
-        client.sendLarge(url,&options,[&](const char*buffer,int size){
-            writer(buffer,size,st,out);
-            st+=size;
-            chunk.downloaded+=size;
-        });
-
-        out.close();
-    }
-    catch (const exception& e){
-        cerr << e.what() << endl;
-        chunk.failed=true;
+        catch (const exception& e){
+            cerr << e.what() << endl;
+            chunk.retries++;
+            if(chunk.retries>MAXRETRIES){
+                chunk.failed=true;
+                return;
+            }
+            this_thread::sleep_for(chrono::milliseconds(200 * chunk.retries));
+        }
     }
 }
 
@@ -129,26 +137,32 @@ public:
             t.join();
         }
 
-        bool failed=false;
-        vector<reference_wrapper<Chunk>> failedChunks;
-
-        do{
-            failedChunks.clear();
-            failed=false;
-            for(auto& chunk:chunks){
-                if(chunk.failed){
-                    if(chunk.retries>MAXRETRIES){
-                        throw runtime_error("Cannot Download file\n");
-                    }
-                    failed=true;
-                    failedChunks.push_back(chunk);
-                }
+        for(auto& chunk:chunks){
+            if(chunk.failed){
+                throw runtime_error("One or more chunks failed to be retrieved");
             }
+        }
 
-            if(failed){
-                retryChunk(url,file,failedChunks);
-            }
-        }while(failed);
+        // bool failed=false;
+        // vector<reference_wrapper<Chunk>> failedChunks;
+
+        // do{
+        //     failedChunks.clear();
+        //     failed=false;
+        //     for(auto& chunk:chunks){
+        //         if(chunk.failed){
+        //             if(chunk.retries>MAXRETRIES){
+        //                 throw runtime_error("Cannot Download file\n");
+        //             }
+        //             failed=true;
+        //             failedChunks.push_back(chunk);
+        //         }
+        //     }
+
+        //     if(failed){
+        //         retryChunk(url,file,failedChunks);
+        //     }
+        // }while(failed);
 
         auto end=chrono::high_resolution_clock::now();
         double seconds = chrono::duration<double>(end - start).count();
