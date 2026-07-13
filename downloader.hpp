@@ -8,6 +8,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <filesystem>
 
 #define MAXRETRIES 5
 
@@ -120,6 +121,13 @@ void downloadChunk(string url,string file,Chunk& chunk,bool partial,vector<Chunk
     }
 }
 
+int chooseThreadCount(long long size){
+    if(size < 100 * 1024) return 1;
+    if(size < 5 * 1024 * 1024) return 8;
+    if(size < 100 * 1024 * 1024) return 16;
+    return 64;
+}
+
 public:
 
     void download(string url,string file){
@@ -133,7 +141,7 @@ public:
         start=chrono::high_resolution_clock::now();
         last=start;
 
-        int threads=16;
+        int threads=32;
 
         if(!client.supportsRange(url)){
             threads=1;
@@ -175,37 +183,15 @@ public:
             }
         }
 
-        for(auto& c: chunks)
-        cout << c.completed << endl;
-
-        // bool failed=false;
-        // vector<reference_wrapper<Chunk>> failedChunks;
-
-        // do{
-        //     failedChunks.clear();
-        //     failed=false;
-        //     for(auto& chunk:chunks){
-        //         if(chunk.failed){
-        //             if(chunk.retries>MAXRETRIES){
-        //                 throw runtime_error("Cannot Download file\n");
-        //             }
-        //             failed=true;
-        //             failedChunks.push_back(chunk);
-        //         }
-        //     }
-
-        //     if(failed){
-        //         retryChunk(url,file,failedChunks);
-        //     }
-        // }while(failed);
-
         auto end=chrono::high_resolution_clock::now();
         double seconds = chrono::duration<double>(end - start).count();
         cout << totalSize/(1024*1024.0) << "megabytes downloaded in " << seconds << " seconds." << endl;
 
+        filesystem::remove("file.meta");
+
     }
 
-    void pause{
+    void pause(){
         paused=true;
     }
 };
