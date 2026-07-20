@@ -53,7 +53,7 @@ vector<Chunk> loadMeta(const string& filename){
     return chunks;
 }
 
-void printProgress(double percent,double mbs){
+void printProgress(double percent, double mbs){
     const int width=40;
     int filled = static_cast<int>(width*percent/100);
 
@@ -64,8 +64,16 @@ void printProgress(double percent,double mbs){
     for(int i=filled;i<width;i++){
         bar+="\u2591";
     }
-    cout << '\r' << bar << " Speed: " << setprecision(2) << mbs << " mbs" << "            " << flush;
 
+    ostringstream line;
+    line << bar << " Speed: " << fixed << setprecision(2) << mbs << " mbs" << "            ";
+
+    lock_guard<mutex> lock(*printMutex); 
+
+    cout << "\033[" << (id+1) << "A"
+         << "\r" << line.str()
+         << "\033[" << (id+1) << "B" 
+         << "\r" << flush;
 }
 
 void writer(const char*buffer,int size,long long st,fstream& out){
@@ -175,87 +183,90 @@ int chooseThreadCount(long long size){
     return 64;
 }
 
+void downloadmain(string url,string file,bool resume){
+
+    fstream out;
+    if(resume){
+        out.open(file, ios::in | ios::out | ios::binary);
+    }
+    else{
+        out.open(file, ios::out | ios::binary);
+    }
+    if(!out){
+        throw runtime_error("file creation failed");
+    }
+
+    start=chrono::high_resolution_clock::now();
+    last=start;
+
+    bytesRecv=0;
+
+    totalSize=client.getSize(url);
+    if(totalSize==-1){
+        throw runtime_error("failed to get size");
+    }
+
+    int threads=16;
+
+    if(!client.supportsRange(url)){
+        threads=1;
+    }
+
+    vector<Chunk> chunks;
+    string metaFileName=file+".meta";
+    ifstream in(metaFileName);
+
+    if(in){
+        chunks=loadMeta(metaFileName);
+    }
+    else {
+        chunks=createChunks(totalSize,threads);
+        out.seekp(totalSize - 1);
+        out.write("", 1);
+        out.flush();
+    }
+    out.close();
+
+    vector<thread> workers;
+    for(auto& chunk:chunks){
+        bytesRecv+=chunk.downloaded;
+        if(chunk.completed) continue;
+        workers.emplace_back(&Downloader::downloadChunk,this,url,file,ref(chunk),threads!=1,ref(chunks));
+    }
+
+    for(auto& t:workers){
+        t.join();
+    }
+
+    for(auto& chunk:chunks){
+        if(chunk.failed){
+            throw runtime_error("One or more chunks failed to be retrieved");
+        }
+    }
+
+    auto end=chrono::high_resolution_clock::now();
+    double seconds = chrono::duration<double>(end - start).count();
+    cout << '\r' << bytesRecv/(1024*1024.0) << "megabytes downloaded in " << seconds << " seconds." << "                                       " << endl;
+
+    if(!paused) filesystem::remove(metaFileName);
+
+}
+
 public:
 
-    void downloadmain(string url,string file,int threadcnt,bool resume){
-
-        fstream out;
-        if(resume){
-            out.open(file, ios::in | ios::out | ios::binary);
-        }
-        else{
-            out.open(file, ios::out | ios::binary);
-        }
-        if(!out){
-            throw runtime_error("file creation failed");
-        }
-
-        start=chrono::high_resolution_clock::now();
-        last=start;
-
-        bytesRecv=0;
-
-        totalSize=client.getSize(url);
-        if(totalSize==-1){
-            throw runtime_error("failed to get size");
-        }
-
-        int threads=threadcnt;
-
-        if(!client.supportsRange(url)){
-            threads=1;
-        }
-
-        vector<Chunk> chunks;
-        string metaFileName=file+".meta";
-        ifstream in(metaFileName);
-
-        if(in){
-            chunks=loadMeta(metaFileName);
-        }
-        else {
-            chunks=createChunks(totalSize,threads);
-            out.seekp(totalSize - 1);
-            out.write("", 1);
-            out.flush();
-        }
-        out.close();
-
-        vector<thread> workers;
-        for(auto& chunk:chunks){
-            bytesRecv+=chunk.downloaded;
-            if(chunk.completed) continue;
-            workers.emplace_back(&Downloader::downloadChunk,this,url,file,ref(chunk),threads!=1,ref(chunks));
-        }
-
-        for(auto& t:workers){
-            t.join();
-        }
-
-        for(auto& chunk:chunks){
-            if(chunk.failed){
-                throw runtime_error("One or more chunks failed to be retrieved");
-            }
-        }
-
-        auto end=chrono::high_resolution_clock::now();
-        double seconds = chrono::duration<double>(end - start).count();
-        cout << '\r' << bytesRecv/(1024*1024.0) << "megabytes downloaded in " << seconds << " seconds." << "                                       " << endl;
-
-        if(!paused) filesystem::remove(metaFileName);
-
-    }
+    int id;
+    mutex* printMutex=nullptr;
 
     void pause(){
         paused=true;
     }
 
-    void resume(string url,string file,int threadcnt){
+    void resume(string url,string file){
         paused=false;
-        downloadmain(url,file,threadcnt,1);
+        downloadmain(url,file,1);
     }
 
-    void download(string url,string file,int threadcnt){
-        downloadmain(url,file,threadcnt,0);
+    void download(string url,string file){
+        downloadmain(url,file,0);
     }
 };

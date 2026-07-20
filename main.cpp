@@ -1,23 +1,15 @@
-#include "downloader.hpp"
+#include "idm.hpp"
 #include <thread>
 #include <chrono>
 
 int main(){
 
-    Downloader downloader;
+    DownloadManager manager(3);
 
-    thread downloadThread(&Downloader::download, &downloader,
-        "https://speedtest.tele2.net/50MB.zip", "test.zip", 8);
+    manager.addDownload("https://speedtest.tele2.net/10MB.zip", "test1.zip");
+    manager.addDownload("https://speedtest.tele2.net/10MB.zip", "test2.zip");
 
-    this_thread::sleep_for(chrono::milliseconds(6000));
-    downloader.pause();
-    cout << '\r' << "Paused" << "                                           " << endl;
-
-    if(downloadThread.joinable()) downloadThread.join(); 
-
-    this_thread::sleep_for(chrono::milliseconds(4000));
-
-    downloader.resume("https://speedtest.tele2.net/50MB.zip", "test.zip", 8); 
+    manager.waitAll();
 
     return 0;
 }
