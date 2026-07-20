@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <atomic>
 struct Range{
     long long start=0, end=0;
 };

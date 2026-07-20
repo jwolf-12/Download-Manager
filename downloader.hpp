@@ -53,6 +53,21 @@ vector<Chunk> loadMeta(const string& filename){
     return chunks;
 }
 
+void printProgress(double percent,double mbs){
+    const int width=40;
+    int filled = static_cast<int>(width*percent/100);
+
+    string bar;
+    for(int i=0;i<filled;i++){
+        bar+="\u2588";
+    }
+    for(int i=filled;i<width;i++){
+        bar+="\u2591";
+    }
+    cout << '\r' << bar << " Speed: " << setprecision(2) << mbs << " mbs" << "            " << flush;
+
+}
+
 void writer(const char*buffer,int size,long long st,fstream& out){
     out.seekp(st);
     out.write(buffer,size);
@@ -65,7 +80,8 @@ void writer(const char*buffer,int size,long long st,fstream& out){
 
     if(elapse>2) {
         double seconds = chrono::duration<double>(end - start).count();
-        cout << bytesRecv*100.0/totalSize <<"% done  Speed: " << bytesRecv/(seconds*(1024.0*1024)) << " mbs" <<endl;
+        // cout << bytesRecv*100.0/totalSize <<"% done  Speed: " << bytesRecv/(seconds*(1024.0*1024)) << " mbs" <<endl;
+        printProgress(bytesRecv*100.0/totalSize,bytesRecv/(seconds*(1024.0*1024)));
         last=end;
     }
 }
@@ -86,6 +102,7 @@ vector<Chunk> createChunks(long long totalSize, int threads){
 
 void downloadChunk(string url,string file,Chunk& chunk,bool partial,vector<Chunk>& chunks){
     while(!paused){
+        thread watchdog;
         try{
             fstream out(file,ios::in | ios::out | ios::binary);
             if(!out){
@@ -97,20 +114,50 @@ void downloadChunk(string url,string file,Chunk& chunk,bool partial,vector<Chunk
             options.expectPartial=partial;
             long long st = options.range->start;
             HttpClient client;
+            atomic<long long> lastProgressMs{
+                chrono::duration_cast<chrono::milliseconds>(
+                    chrono::high_resolution_clock::now().time_since_epoch()
+                ).count()
+            };
+
+            atomic<bool> done=false;
+            atomic<bool> stalled=false;
+            watchdog=thread([&](){
+                while(!done){
+                    auto now = chrono::duration_cast<chrono::milliseconds>(
+                            chrono::high_resolution_clock::now().time_since_epoch()
+                        ).count();
+                    
+                    if(now - lastProgressMs > 5000 && done==false){
+                        stalled=true; return;
+                    }
+                    
+                    this_thread::sleep_for(chrono::milliseconds(500));
+                }
+            });
             client.sendLarge(url,&options,[&](const char*buffer,int size){
+                if(stalled) throw runtime_error("Stalled");
+                if(paused) throw runtime_error("Paused");
                 writer(buffer,size,st,out);
                 st+=size;
                 lock_guard<mutex> lock(metaMutex);
                 chunk.downloaded+=size;
+                lastProgressMs =
+                chrono::duration_cast<chrono::milliseconds>(
+                    chrono::high_resolution_clock::now().time_since_epoch()
+                ).count();
             });
-
+            done=true;
             out.close();
             chunk.completed=true;
-            saveMeta("file.meta", chunks);
+            if(watchdog.joinable()) watchdog.join();
+            saveMeta(file + ".meta", chunks);
             return;
         }
         catch (const exception& e){
-            cerr << e.what() << endl;
+            if(watchdog.joinable()) watchdog.join();
+            // cerr << e.what() << endl;
+            if(paused) {saveMeta(file + ".meta", chunks); return;}
             chunk.retries++;
             if(chunk.retries>MAXRETRIES){
                 chunk.failed=true;
@@ -130,33 +177,41 @@ int chooseThreadCount(long long size){
 
 public:
 
-    void download(string url,string file){
-        ofstream out(file,ios::binary);
+    void downloadmain(string url,string file,int threadcnt,bool resume){
+
+        fstream out;
+        if(resume){
+            out.open(file, ios::in | ios::out | ios::binary);
+        }
+        else{
+            out.open(file, ios::out | ios::binary);
+        }
         if(!out){
             throw runtime_error("file creation failed");
         }
 
-        bytesRecv=0;
-
         start=chrono::high_resolution_clock::now();
         last=start;
 
-        int threads=32;
-
-        if(!client.supportsRange(url)){
-            threads=1;
-        }
+        bytesRecv=0;
 
         totalSize=client.getSize(url);
         if(totalSize==-1){
             throw runtime_error("failed to get size");
         }
 
+        int threads=threadcnt;
+
+        if(!client.supportsRange(url)){
+            threads=1;
+        }
+
         vector<Chunk> chunks;
-        ifstream in("file.meta");
+        string metaFileName=file+".meta";
+        ifstream in(metaFileName);
 
         if(in){
-            chunks=loadMeta("file.meta");
+            chunks=loadMeta(metaFileName);
         }
         else {
             chunks=createChunks(totalSize,threads);
@@ -185,13 +240,22 @@ public:
 
         auto end=chrono::high_resolution_clock::now();
         double seconds = chrono::duration<double>(end - start).count();
-        cout << totalSize/(1024*1024.0) << "megabytes downloaded in " << seconds << " seconds." << endl;
+        cout << '\r' << bytesRecv/(1024*1024.0) << "megabytes downloaded in " << seconds << " seconds." << "                                       " << endl;
 
-        filesystem::remove("file.meta");
+        if(!paused) filesystem::remove(metaFileName);
 
     }
 
     void pause(){
         paused=true;
+    }
+
+    void resume(string url,string file,int threadcnt){
+        paused=false;
+        downloadmain(url,file,threadcnt,1);
+    }
+
+    void download(string url,string file,int threadcnt){
+        downloadmain(url,file,threadcnt,0);
     }
 };
